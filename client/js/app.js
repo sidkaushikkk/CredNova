@@ -3,8 +3,8 @@ const APP_CONFIG = {
     contractAddress: "0x71383D463a89a1b822389F661aC9D65305cb9F7E",
     // Smart Contract ABI
     contractABI: [
-        "function issueCertificate(string memory _certificateId, string memory _ipfsHash) public",
-        "function verifyCertificate(string memory _certificateId) public view returns (bool, string memory, uint256, address)"
+        "function issueCertificate(string _certificateId, string _ipfsHash)",
+        "function verifyCertificate(string _certificateId) view returns (bool isValid, string ipfsHash, uint256 issueDate, address issuer)"
     ],
     // Backend API URL (for local this is usually empty or localhost depending on setup)
     apiUrl: window.location.hostname === 'localhost' ? 'http://localhost:3000' : ''
@@ -221,7 +221,11 @@ if (issueForm) {
             // Use dummy contract if user hasn't deployed one to prevent crashing in MVP demo
 const tx = await contract.issueCertificate(
     certData.certificateId,
-    ipfsHash
+    ipfsHash,
+    {
+        maxFeePerGas: ethers.parseUnits("30", "gwei"),
+        maxPriorityFeePerGas: ethers.parseUnits("30", "gwei")
+    }
 );
 
 await tx.wait();
@@ -249,7 +253,8 @@ if (verifyForm) {
     verifyForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const certId = document.getElementById('verifyCertId').value;
+        // STEP 8: Encoding mismatch - trim input to ensure EXACT match
+        const certId = document.getElementById('verifyCertId').value.trim();
         const resultBox = document.getElementById('resultBox');
         const submitBtn = verifyForm.querySelector('button[type="submit"]');
         
@@ -260,49 +265,65 @@ if (verifyForm) {
         try {
 
     // ensure contract exists
+    let activeProvider = provider || new ethers.JsonRpcProvider("https://rpc-amoy.polygon.technology/");
     if (!contract) {
-
-        const rpcProvider = new ethers.JsonRpcProvider(
-            "https://rpc-amoy.polygon.technology/"
-        );
-
         contract = new ethers.Contract(
             APP_CONFIG.contractAddress,
             APP_CONFIG.contractABI,
-            rpcProvider
+            signer || activeProvider
         );
     }
 
+    // STEP 10: ensure contract is not undefined
+    if (!contract) {
+        console.error("Contract not initialized");
+        throw new Error("Contract not initialized");
+    }
+
+    // STEP 6: confirm certificate exists with logs
+    console.log("checking certId:", certId);
+    console.log("contract:", contract);
+    console.log("network:", await activeProvider.getNetwork());
+
+    // STEP 7: Network check for Polygon Amoy
+    const network = await activeProvider.getNetwork();
+    if (network.chainId !== 80002n && Number(network.chainId) !== 80002) {
+        throw new Error("Incorrect network. Please switch to Polygon Amoy in MetaMask.");
+    }
+
+    console.log("Calling verifyCertificate...");
+    // STEP 5: verify call correctly destructured
     // 1. Fetch from Blockchain
-const [ipfsHash, issuer, issueDateTs] =
-    await contract.verifyCertificate(certId);
+    const [isValid, ipfsHash, issueDateTs, issuer] = await contract.verifyCertificate(certId);
 
-const isValid = ipfsHash && ipfsHash.length > 0;            if (!isValid) {
-                resultBox.classList.add('show', 'error');
-                resultBox.innerHTML = `<h3>Verification Failed</h3><p>Certificate ID not found or invalid.</p>`;
-                return;
-            }
+    console.log("Result:", { isValid, ipfsHash, issueDateTs: issueDateTs.toString(), issuer });
 
-            // 2. Fetch metadata from IPFS
-            const ipfsRes = await fetch(`${APP_CONFIG.apiUrl}/ipfs/${ipfsHash}`);
-            if (!ipfsRes.ok) throw new Error("Metadata not found on IPFS");
-            const metadata = await ipfsRes.json();
+    if (!isValid) {
+        resultBox.classList.add('show', 'error');
+        resultBox.innerHTML = `<h3>Verification Failed</h3><p>Certificate ID not found or invalid.</p>`;
+        return;
+    }
 
-            // 3. Display Result
-            resultBox.classList.add('show', 'success');
-            
-            // Format Date from timestamp
-            const dateStr = new Date(issueDateTs * 1000).toLocaleDateString();
+    // 2. Fetch metadata from IPFS
+    const ipfsRes = await fetch(`${APP_CONFIG.apiUrl}/ipfs/${ipfsHash}`);
+    if (!ipfsRes.ok) throw new Error("Metadata not found on IPFS");
+    const metadata = await ipfsRes.json();
 
-            resultBox.innerHTML = `
-                <h3 style="color: var(--success-color); margin-bottom: 1rem;">✅ Certificate Authenticated</h3>
-                <div class="result-item"><span class="result-label">Student Name:</span> <span class="result-value">${metadata.studentName}</span></div>
-                <div class="result-item"><span class="result-label">Course:</span> <span class="result-value">${metadata.courseName}</span></div>
-                <div class="result-item"><span class="result-label">Institution:</span> <span class="result-value">${metadata.institutionName}</span></div>
-                <div class="result-item"><span class="result-label">Issue Date (Blockchain):</span> <span class="result-value">${dateStr}</span></div>
-                <div class="result-item"><span class="result-label">Issuer Address:</span> <span class="result-value">${issuer}</span></div>
-                <div class="result-item"><span class="result-label">IPFS Hash:</span> <span class="result-value" style="font-size: 0.8rem;">${ipfsHash}</span></div>
-            `;
+    // 3. Display Result
+    resultBox.classList.add('show', 'success');
+    
+    // Format Date from timestamp
+    const dateStr = new Date(Number(issueDateTs) * 1000).toLocaleDateString();
+
+    resultBox.innerHTML = `
+        <h3 style="color: var(--success-color); margin-bottom: 1rem;">✅ Certificate Authenticated</h3>
+        <div class="result-item"><span class="result-label">Student Name:</span> <span class="result-value">${metadata.studentName}</span></div>
+        <div class="result-item"><span class="result-label">Course:</span> <span class="result-value">${metadata.courseName}</span></div>
+        <div class="result-item"><span class="result-label">Institution:</span> <span class="result-value">${metadata.institutionName}</span></div>
+        <div class="result-item"><span class="result-label">Issue Date (Blockchain):</span> <span class="result-value">${dateStr}</span></div>
+        <div class="result-item"><span class="result-label">Issuer Address:</span> <span class="result-value">${issuer}</span></div>
+        <div class="result-item"><span class="result-label">IPFS Hash:</span> <span class="result-value" style="font-size: 0.8rem;">${ipfsHash}</span></div>
+    `;
             
         }catch (err) {
 
