@@ -1,6 +1,6 @@
 const APP_CONFIG = {
     // Replace with your actual deployed contract address on Ethereum/Polygon testnet
-    contractAddress: "0xYourDeployedContractAddressHere",
+    contractAddress: "0x71383D463a89a1b822389F661aC9D65305cb9F7E",
     // Smart Contract ABI
     contractABI: [
         "function issueCertificate(string memory _certificateId, string memory _ipfsHash) public",
@@ -21,79 +21,167 @@ const walletStatusIndicator = document.getElementById('walletStatusIndicator');
 
 // Connect to MetaMask
 async function connectWallet() {
-    if (typeof window.ethereum !== 'undefined') {
+
+    try {
+
+        if (!window.ethereum) {
+            alert("Please install MetaMask");
+            return;
+        }
+
+        // try switching to Polygon Amoy
         try {
-            await window.ethereum.request({ method: 'eth_requestAccounts' });
 
-            provider = new ethers.providers.Web3Provider(window.ethereum);
-            signer = provider.getSigner();
+            await window.ethereum.request({
+                method: "wallet_switchEthereumChain",
+                params: [{ chainId: "0x13882" }]
+            });
 
-            const address = await signer.getAddress();
+        } catch (switchError) {
 
-            // initialize contract
-            contract = new ethers.Contract(
-                APP_CONFIG.contractAddress,
-                APP_CONFIG.contractABI,
-                signer
-            );
+            // if network not added, add it
+            if (switchError.code === 4902) {
 
-            // UI updates
-            if (walletAddressDisplay) {
-                walletAddressDisplay.innerText =
-                    address.substring(0, 6) + '...' +
-                    address.substring(address.length - 4);
+                await window.ethereum.request({
+                    method: "wallet_addEthereumChain",
+                    params: [{
+                        chainId: "0x13882",
+                        chainName: "Polygon Amoy",
+                        nativeCurrency: {
+                            name: "POL",
+                            symbol: "POL",
+                            decimals: 18
+                        },
+                        rpcUrls: ["https://rpc-amoy.polygon.technology/"],
+                        blockExplorerUrls: ["https://amoy.polygonscan.com/"]
+                    }]
+                });
+
+            } else {
+
+                throw switchError;
             }
-
-            if (walletStatusIndicator) {
-                walletStatusIndicator.classList.add('connected');
-                walletStatusIndicator.querySelector('span').innerText =
-                    'Wallet Connected';
-            }
-
-            if (connectWalletBtn) {
-                connectWalletBtn.innerText = 'Connected';
-                connectWalletBtn.disabled = true;
-            }
-
-            console.log("Wallet connected:", address);
-
-        } catch (error) {
-            console.error(error);
-            alert("Failed to connect wallet.");
         }
-    } else {
-        alert("Please install MetaMask!");
-    }
+
+        // request wallet access
+        await window.ethereum.request({
+            method: "eth_requestAccounts"
+        });
+
+        provider = new ethers.BrowserProvider(window.ethereum);
+
+        signer = await provider.getSigner();
+
+        const address = await signer.getAddress();
+
+        contract = new ethers.Contract(
+            APP_CONFIG.contractAddress,
+            APP_CONFIG.contractABI,
+            signer
+        );
+
+console.log("Wallet connected:", address);
+
+// update UI
+if (walletAddressDisplay) {
+    walletAddressDisplay.innerText =
+        address.substring(0,6) + "..." + address.substring(address.length-4);
 }
-// Check if already connected on load
-async function checkConnection() {
-    if (typeof window.ethereum !== 'undefined') {
-        provider = new ethers.providers.Web3Provider(window.ethereum);
-        const accounts = await provider.listAccounts();
-        if (accounts.length > 0) {
-            signer = provider.getSigner();
-            contract = new ethers.Contract(APP_CONFIG.contractAddress, APP_CONFIG.contractABI, signer);
-            const address = await signer.getAddress();
-            if (walletAddressDisplay) walletAddressDisplay.innerText = address.substring(0, 6) + '...' + address.substring(address.length - 4);
-            if (walletStatusIndicator) {
-                walletStatusIndicator.classList.add('connected');
-                walletStatusIndicator.querySelector('span').innerText = 'Wallet Connected';
-            }
-            if (connectWalletBtn) {
-                connectWalletBtn.innerText = 'Connected';
-                connectWalletBtn.disabled = true;
-            }
-        } else {
-            // Setup read-only contract if not connected
-            contract = new ethers.Contract(APP_CONFIG.contractAddress, APP_CONFIG.contractABI, provider);
-        }
-    }
+
+if (walletStatusIndicator) {
+    walletStatusIndicator.classList.add("connected");
+
+    const span = walletStatusIndicator.querySelector("span");
+
+    if (span) span.innerText = "Connected";
 }
 
 if (connectWalletBtn) {
-    connectWalletBtn.addEventListener('click', connectWallet);
+    connectWalletBtn.innerText = "Connected";
+    connectWalletBtn.disabled = true;
+}
+    }
+    catch (err) {
+
+        console.error(err);
+
+        alert("Wallet connection failed");
+    }
 }
 
+// Check if already connected on load
+async function checkConnection() {
+
+    if (!window.ethereum) {
+
+        // create read-only provider
+        provider = new ethers.JsonRpcProvider(
+            "https://rpc-amoy.polygon.technology/"
+        );
+
+        contract = new ethers.Contract(
+            APP_CONFIG.contractAddress,
+            APP_CONFIG.contractABI,
+            provider
+        );
+
+        return;
+    }
+
+    provider = new ethers.BrowserProvider(window.ethereum);
+
+    const accounts = await provider.listAccounts();
+
+    if (accounts.length > 0) {
+
+        signer = await provider.getSigner();
+
+        contract = new ethers.Contract(
+            APP_CONFIG.contractAddress,
+            APP_CONFIG.contractABI,
+            signer
+        );
+
+        const address = await signer.getAddress();
+
+        // UI update
+        if (walletAddressDisplay) {
+            walletAddressDisplay.innerText =
+                address.slice(0,6) + "..." + address.slice(-4);
+        }
+
+        if (walletStatusIndicator) {
+
+            walletStatusIndicator.classList.add("connected");
+
+            const span =
+                walletStatusIndicator.querySelector("span");
+
+            if (span) span.innerText = "Connected";
+        }
+
+        if (connectWalletBtn) {
+
+            connectWalletBtn.innerText = "Connected";
+
+            connectWalletBtn.disabled = true;
+        }
+
+    } else {
+
+        // read-only contract (important for verify page)
+
+        const rpcProvider = new ethers.JsonRpcProvider(
+            "https://rpc-amoy.polygon.technology/"
+        );
+
+        contract = new ethers.Contract(
+            APP_CONFIG.contractAddress,
+            APP_CONFIG.contractABI,
+            rpcProvider
+        );
+    }
+}
 // Issue Certificate Logic
 const issueForm = document.getElementById('issueForm');
 if (issueForm) {
@@ -131,14 +219,20 @@ if (issueForm) {
             // 2. Store hash on Blockchain
             console.log("Storing on smart contract context...");
             // Use dummy contract if user hasn't deployed one to prevent crashing in MVP demo
-            if (APP_CONFIG.contractAddress === "0x71383D463a89a1b822389F661aC9D65305cb9F7E") {
-                alert(`Mock Success!\n\nIPFS Hash: ${ipfsHash}\n\n(Smart contract not deployed. Update APP_CONFIG.contractAddress in app.js to interact with your actual Polygon contract)`);
-            } else {
-                const tx = await contract.issueCertificate(certData.certificateId, ipfsHash);
-                await tx.wait(); // wait for mining
-                alert(`Certificate Issued Successfully! \nTx: ${tx.hash}\nIPFS Hash: ${ipfsHash}`);
-            }
-            issueForm.reset();
+const tx = await contract.issueCertificate(
+    certData.certificateId,
+    ipfsHash
+);
+
+await tx.wait();
+
+alert(`Certificate Issued Successfully!
+
+Transaction Hash:
+${tx.hash}
+
+IPFS Hash:
+${ipfsHash}`);            issueForm.reset();
         } catch (err) {
             console.error(err);
             alert("Error issuing certificate. See console.");
@@ -164,19 +258,26 @@ if (verifyForm) {
         resultBox.className = "result-box"; // reset classes
         
         try {
-            if (APP_CONFIG.contractAddress === "0x71383D463a89a1b822389F661aC9D65305cb9F7E") {
-                // Mock Simulation for Demo
-                resultBox.classList.add('show', 'error');
-                resultBox.innerHTML = `<h3>Blockchain Error</h3><p>Smart contract not configured. Update app.js to use real network.</p>`;
-                submitBtn.disabled = false;
-                submitBtn.innerText = "Verify Authenticity";
-                return;
-            }
 
-            // 1. Fetch from Blockchain
-            const [isValid, ipfsHash, issueDateTs, issuer] = await contract.verifyCertificate(certId);
-            
-            if (!isValid) {
+    // ensure contract exists
+    if (!contract) {
+
+        const rpcProvider = new ethers.JsonRpcProvider(
+            "https://rpc-amoy.polygon.technology/"
+        );
+
+        contract = new ethers.Contract(
+            APP_CONFIG.contractAddress,
+            APP_CONFIG.contractABI,
+            rpcProvider
+        );
+    }
+
+    // 1. Fetch from Blockchain
+const [ipfsHash, issuer, issueDateTs] =
+    await contract.verifyCertificate(certId);
+
+const isValid = ipfsHash && ipfsHash.length > 0;            if (!isValid) {
                 resultBox.classList.add('show', 'error');
                 resultBox.innerHTML = `<h3>Verification Failed</h3><p>Certificate ID not found or invalid.</p>`;
                 return;
@@ -203,11 +304,41 @@ if (verifyForm) {
                 <div class="result-item"><span class="result-label">IPFS Hash:</span> <span class="result-value" style="font-size: 0.8rem;">${ipfsHash}</span></div>
             `;
             
-        } catch (err) {
-            console.error(err);
-            resultBox.classList.add('show', 'error');
-            resultBox.innerHTML = `<h3>Error</h3><p>${err.message || 'Could not verify certificate'}</p>`;
-        } finally {
+        }catch (err) {
+
+    console.error(err);
+
+    resultBox.classList.add('show', 'error');
+
+    if (err.message.includes("Certificate not found")) {
+
+        resultBox.innerHTML = `
+            <h3>❌ Certificate Not Found</h3>
+
+            <p>
+            This certificate ID does not exist on blockchain.
+            </p>
+
+            <div style="margin-top:10px;font-size:14px;opacity:0.8;">
+            Possible reasons:
+            <br>• Certificate not issued yet
+            <br>• Wrong Certificate ID
+            <br>• Different network selected
+            </div>
+        `;
+
+    }
+    else {
+
+        resultBox.innerHTML = `
+            <h3>⚠️ Verification Error</h3>
+
+            <p>
+            ${err.reason || err.message || "Something went wrong"}
+            </p>
+        `;
+    }
+} finally {
             submitBtn.disabled = false;
             submitBtn.innerText = "Verify Authenticity";
         }
