@@ -38,7 +38,7 @@ contract CredLedger {
     }
 
     // Function to verify a certificate's authenticity
-    function verifyCertificate(string memory _certificateId) public view returns (bool, string memory, uint256, address) {
+    function verifyCertificate(string memory _certificateId) public view returns (bool isValid, string memory ipfsHash, uint256 issueDate, address issuer) {
         Certificate memory cert = certificates[_certificateId];
         if (cert.isValid) {
             return (true, cert.ipfsHash, cert.issueDate, cert.issuer);
