@@ -46,4 +46,3 @@ contract CredLedger {
         return (false, "", 0, address(0));
     }
 }
-
