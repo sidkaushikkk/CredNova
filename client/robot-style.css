@@ -1,0 +1,11 @@
+/* Robot Canvas Overlay */
+#robot-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 50; /* Sits below navbar but above background */
+    pointer-events: none; /* Let interactions pass clearly through */
+    background: transparent;
+}
